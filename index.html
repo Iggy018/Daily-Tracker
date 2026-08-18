@@ -1487,7 +1487,23 @@ const firebaseConfig = {
   messagingSenderId: "PASTE_YOUR_SENDER_ID",
   appId: "PASTE_YOUR_APP_ID"
 };
-// ↑↑↑ REPLACE THIS WHOLE OBJECT with the one from your Firebase project ↑↑↑
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyCNu2GO7jyvqMl174eRIjNNxBKcCTlcUL0",
+  authDomain: "daily-habits-tracker-8ca54.firebaseapp.com",
+  projectId: "daily-habits-tracker-8ca54",
+  storageBucket: "daily-habits-tracker-8ca54.firebasestorage.app",
+  messagingSenderId: "1499217319",
+  appId: "1:1499217319:web:20d8b3b19a943cba99ca82"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
 
 const fbApp=initializeApp(firebaseConfig);
 const auth=getAuth(fbApp);
