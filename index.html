@@ -1478,21 +1478,6 @@ import {
   getFirestore, doc, getDoc, setDoc
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
-// ↓↓↓ REPLACE THIS WHOLE OBJECT with the one from your Firebase project ↓↓↓
-const firebaseConfig = {
-  apiKey: "PASTE_YOUR_API_KEY",
-  authDomain: "PASTE_YOUR_PROJECT.firebaseapp.com",
-  projectId: "PASTE_YOUR_PROJECT_ID",
-  storageBucket: "PASTE_YOUR_PROJECT.appspot.com",
-  messagingSenderId: "PASTE_YOUR_SENDER_ID",
-  appId: "PASTE_YOUR_APP_ID"
-};
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyCNu2GO7jyvqMl174eRIjNNxBKcCTlcUL0",
   authDomain: "daily-habits-tracker-8ca54.firebaseapp.com",
@@ -1501,9 +1486,6 @@ const firebaseConfig = {
   messagingSenderId: "1499217319",
   appId: "1:1499217319:web:20d8b3b19a943cba99ca82"
 };
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
 
 const fbApp=initializeApp(firebaseConfig);
 const auth=getAuth(fbApp);
@@ -1551,5 +1533,7 @@ onAuthStateChanged(auth, (user)=>{
   }
 });
 </script>
+</body>
+</html>
 </body>
 </html>
