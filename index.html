@@ -6,9 +6,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0B1E33">
-<link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="icon-192.png">
-<link rel="icon" href="icon-192.png">
 <title>The Log</title>
 <style>
   :root{
@@ -244,25 +241,6 @@
 </style>
 </head>
 <body>
-<div id="authScreen">
-  <div style="max-width:360px;margin:70px auto 0;padding:0 20px;">
-    <div class="eyebrow" style="text-align:center;">THE LOG</div>
-    <h1 style="text-align:center;margin:6px 0 22px;font-size:24px;">Sign in</h1>
-    <div class="card">
-      <label class="field">Email</label>
-      <input type="email" id="authEmail" placeholder="you@example.com" autocomplete="username">
-      <label class="field">Password</label>
-      <input type="password" id="authPassword" placeholder="At least 6 characters" autocomplete="current-password">
-      <div class="row" style="margin-top:14px;">
-        <button class="btn" style="flex:1;" onclick="doSignIn()">Sign in</button>
-        <button class="btn ghost" style="flex:1;" onclick="doSignUp()">Create account</button>
-      </div>
-      <div id="authError" style="color:var(--red);font-size:13px;margin-top:10px;"></div>
-      <div class="muted" style="margin-top:14px;">First time here? Tap "Create account" — this just protects your data, it's only ever you.</div>
-    </div>
-  </div>
-</div>
-<div id="appScreen" style="display:none;">
 <header class="top">
   <div class="eyebrow">The Log</div>
   <h1 id="headerTitle">—</h1>
@@ -275,35 +253,20 @@
   <button data-tab="journal" onclick="switchTab('journal')">Journal</button>
   <button data-tab="settings" onclick="switchTab('settings')">Settings</button>
 </nav>
-</div>
 <div class="toast" id="toast"></div>
 
 <script>
-/* ---------- storage helpers (Firestore-backed) ---------- */
-function stripUndefined(value){
-  if(value===undefined) return null;
-  if(Array.isArray(value)) return value.map(stripUndefined);
-  if(value && typeof value==='object'){
-    const out={};
-    for(const k in value) out[k]=stripUndefined(value[k]);
-    return out;
-  }
-  return value;
-}
+/* ---------- storage helpers ---------- */
 async function getOrDefault(key, def){
   try{
-    const {db, doc, getDoc}=window.__fb;
-    const ref=doc(db, 'users', window.currentUser.uid, 'store', key);
-    const snap=await getDoc(ref);
-    if(snap.exists() && snap.data().value!==undefined) return snap.data().value;
+    const res = await window.storage.get(key, false);
+    if(res && res.value) return JSON.parse(res.value);
     return def;
   }catch(e){ return def; }
 }
 async function persist(key, value){
   try{
-    const {db, doc, setDoc}=window.__fb;
-    const ref=doc(db, 'users', window.currentUser.uid, 'store', key);
-    await setDoc(ref, {value: stripUndefined(value)});
+    await window.storage.set(key, JSON.stringify(value), false);
   }catch(e){ toast('Could not save — check connection'); }
 }
 let entriesSaveTimer=null;
@@ -322,7 +285,7 @@ const DEFAULT_HABITS = {
   positive:[
     {id:'weight', name:'Weekly Weigh-In', kind:'weight', unit:'lbs'},
     {id:'morning_supplements', name:'Morning Supplements', kind:'check'},
-    {id:'photo', name:'Take a Progress Picture', kind:'check'},
+    {id:'photo', name:'Take a Progress Picture', kind:'weekly-check'},
     {id:'morning_protein', name:'Morning Protein', kind:'check'},
     {id:'water', name:'Fluid Intake (Non-Sugary Drinks)', kind:'quantity', goal:128, unit:'oz'},
     {id:'afternoon_supplements', name:'Afternoon Supplements', kind:'check'},
@@ -535,7 +498,7 @@ function getHabitDef(id){
 }
 function habitDone(entry, def){
   if(!def) return false;
-  if(def.kind==='weight') return false;
+  if(def.kind==='weight' || def.kind==='weekly-check') return false;
   if(def.kind==='quantity'){
     const q=entry.quantities && entry.quantities[def.id];
     return !!q && q.total >= (def.goal||0);
@@ -550,10 +513,13 @@ function habitDone(entry, def){
 /* ---------- streak logic ---------- */
 function sortedDates(){ return Object.keys(entries).sort(); }
 function currentStreak(conditionFn){
-  const dates=sortedDates();
-  if(dates.length===0) return 0;
+  const t=todayStr();
+  const todayEntry=entries[t];
+  let cursor=new Date(t+'T00:00:00');
+  if(!todayEntry || !conditionFn(todayEntry, t)){
+    cursor.setDate(cursor.getDate()-1);
+  }
   let count=0;
-  let cursor=new Date(dates[dates.length-1]+'T00:00:00');
   while(true){
     const key=fmtDate(cursor);
     const entry=entries[key];
@@ -662,7 +628,7 @@ function isPerfectDay(entry, dateStr){
 }
 function allPositiveDone(entry, dateStr){
   const d=dateStr||todayStr();
-  return habitsConfig.positive.filter(h=>h.kind!=='weight').every(h=>{
+  return habitsConfig.positive.filter(h=>h.kind!=='weight' && h.kind!=='weekly-check').every(h=>{
     if(h.kind==='weekly-goal') return weeklyGoalOk(h, d);
     return habitDone(entry,h);
   });
@@ -721,6 +687,7 @@ function migrateHabitsConfig(){
   if(read && read.name==='Read (self-improvement)'){ read.name='Read (Self-Improvement)'; changed=true; }
   const photo=habitsConfig.positive.find(h=>h.id==='photo');
   if(photo && photo.name==='Progress picture'){ photo.name='Take a Progress Picture'; changed=true; }
+  if(photo && photo.kind!=='weekly-check'){ photo.kind='weekly-check'; changed=true; }
   const workout=habitsConfig.positive.find(h=>h.id==='workout');
   if(workout && workout.name==='Workout'){ workout.name='Complete a Workout'; changed=true; }
   const cheat=habitsConfig.negative.find(h=>h.id==='cheat');
@@ -812,9 +779,13 @@ function renderToday(){
 
   html+='<div class="card"><h2>Do these</h2>';
   html+=renderWeightCheckin(t);
+  habitsConfig.positive.filter(h=>h.kind==='weekly-check').forEach(h=>{
+    html+=renderWeeklyCheckin(h, t);
+  });
   habitsConfig.positive.forEach(h=>{
     if(h.nestedUnder) return;
     if(h.kind==='weight') return;
+    if(h.kind==='weekly-check') return;
     const st=currentStreak(e=>habitDone(e,h));
     if(h.kind==='quantity'){
       const q=entry.quantities[h.id];
@@ -1011,6 +982,29 @@ function renderWeightCheckin(t){
     </div>
   </div>`;
 }
+function weeklyCheckDoneThisWeek(def, dateStr){
+  const wk=sundayWeekKey(new Date(dateStr+'T00:00:00'));
+  return sortedDates().some(d=>{
+    if(sundayWeekKey(new Date(d+'T00:00:00'))!==wk) return false;
+    return !!(entries[d] && entries[d].habits[def.id]);
+  });
+}
+function weeklyCheckWeeksCompleted(def){
+  const weeks=new Set();
+  sortedDates().forEach(d=>{
+    if(entries[d].habits[def.id]){
+      weeks.add(sundayWeekKey(new Date(d+'T00:00:00')));
+    }
+  });
+  return weeks.size;
+}
+function renderWeeklyCheckin(h, t){
+  if(weeklyCheckDoneThisWeek(h, t)) return '';
+  return `<div class="habit-row" style="background:var(--surface-2);border-radius:8px;padding:10px;margin-bottom:8px;border:1px dashed var(--gold);">
+    <button class="chk" onclick="toggleHabit('${h.id}')"></button>
+    <div class="habit-name">${h.name}<small>Once a week · doesn't affect your streak</small></div>
+  </div>`;
+}
 function submitWeight(){
   const el=document.getElementById('weightInput');
   const val=parseFloat(el?el.value:'');
@@ -1127,6 +1121,8 @@ function renderStats(){
     }else if(h.kind==='weekly-goal'){
       const wk=weeklyGoalCountThrough(h, todayStr());
       html+=`<div class="stat-row"><span>${h.name}</span><span class="n mono">${allTimeCount(h.id)} days total · ${wk}/${h.weeklyGoal} this week</span></div>`;
+    }else if(h.kind==='weekly-check'){
+      html+=`<div class="stat-row"><span>${h.name}</span><span class="n mono">${weeklyCheckWeeksCompleted(h)} weeks logged</span></div>`;
     }else{
       html+=`<div class="stat-row"><span>${h.name}</span><span class="n mono">${allTimeCount(h.id)} done · 🔥${currentStreak(e=>habitDone(e,h))} now · best ${bestStreak(e=>habitDone(e,h))}</span></div>`;
     }
@@ -1370,9 +1366,7 @@ function renderSettings(){
   });
   html+='<button class="btn ghost" onclick="addTree()">+ Add prompt tree</button></div>';
 
-  html+='<div class="card"><h2>Backup</h2><div class="muted" style="margin-bottom:8px;">Export a safety copy any time, or bring in a backup from the old version.</div><div class="row"><button class="btn ghost" onclick="renderExportData()">Export my data</button><button class="btn ghost" onclick="renderImportData()">Import a backup</button></div></div>';
-
-  html+='<div class="card"><h2>Account</h2><button class="btn ghost" onclick="doSignOut()">Sign out</button></div>';
+  html+='<div class="card"><h2>Backup</h2><div class="muted" style="margin-bottom:8px;">Copy your data out to move it to the standalone version, or just keep a safety copy.</div><button class="btn ghost" onclick="renderExportData()">Export my data</button></div>';
 
   html+='<div class="card"><h2>Danger zone</h2><button class="btn danger" onclick="resetAll()">Erase all data</button></div>';
 
@@ -1435,105 +1429,8 @@ function copyExport(){
     toast('Select the text above and copy manually');
   }
 }
-function renderImportData(){
-  let html='<div class="card"><h2>Import a backup</h2>';
-  html+='<div class="muted" style="margin-bottom:10px;">Paste the text you copied from the old version\'s Export screen, then tap Import. This overwrites what\'s currently here.</div>';
-  html+='<textarea id="importBox" style="min-height:200px;font-size:12px;" placeholder="Paste your exported data here..."></textarea>';
-  html+='<div class="row" style="margin-top:10px;">';
-  html+='<button class="btn" onclick="doImport()">Import</button>';
-  html+='<button class="btn ghost" onclick="renderSettings()">Back</button>';
-  html+='</div></div>';
-  document.getElementById('main').innerHTML=html;
-}
-async function doImport(){
-  const raw=document.getElementById('importBox').value;
-  let bundle;
-  try{ bundle=JSON.parse(raw); }catch(e){ toast("That doesn't look like valid backup text"); return; }
-  if(bundle.habitsConfig){ habitsConfig=bundle.habitsConfig; await persist('habits-config', habitsConfig); }
-  if(bundle.journalTrees){ journalTrees=bundle.journalTrees; await persist('journal-trees', journalTrees); }
-  if(bundle.entries){ entries=bundle.entries; await persist('entries', entries); }
-  if(bundle.settings){ settings=bundle.settings; await persist('settings', settings); }
-  if(bundle.weightLog){ weightLog=bundle.weightLog; await persist('weight-log', weightLog); }
-  toast('Imported!');
-  switchTab('today');
-}
-function doSignOut(){
-  if(!confirm('Sign out of The Log?')) return;
-  window.__fb.signOut(window.__fb.auth);
-}
-window.init=init;
+
+init();
 </script>
-
-<!-- ===================================================================
-     FIREBASE SETUP — paste your own config below where marked.
-     See README.md for how to get these values.
-     =================================================================== -->
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-import {
-  getAuth, onAuthStateChanged, signInWithEmailAndPassword,
-  createUserWithEmailAndPassword, signOut
-} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import {
-  getFirestore, doc, getDoc, setDoc
-} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyCNu2GO7jyvqMl174eRIjNNxBKcCTlcUL0",
-  authDomain: "daily-habits-tracker-8ca54.firebaseapp.com",
-  projectId: "daily-habits-tracker-8ca54",
-  storageBucket: "daily-habits-tracker-8ca54.firebasestorage.app",
-  messagingSenderId: "1499217319",
-  appId: "1:1499217319:web:20d8b3b19a943cba99ca82"
-};
-
-const fbApp=initializeApp(firebaseConfig);
-const auth=getAuth(fbApp);
-const db=getFirestore(fbApp);
-window.__fb={ db, doc, getDoc, setDoc, signOut, auth };
-
-function showError(msg){
-  const el=document.getElementById('authError');
-  if(el) el.textContent=msg;
-}
-function friendlyError(e){
-  const m=e && e.code ? e.code : '';
-  if(m.includes('email-already-in-use')) return 'That email already has an account — try Sign in instead.';
-  if(m.includes('invalid-email')) return 'That email address doesn\u2019t look right.';
-  if(m.includes('weak-password')) return 'Password needs to be at least 6 characters.';
-  if(m.includes('wrong-password') || m.includes('invalid-credential')) return 'Wrong email or password.';
-  if(m.includes('user-not-found')) return 'No account with that email yet — try Create account.';
-  return 'Something went wrong. Check your connection and try again.';
-}
-window.doSignIn=function(){
-  const email=document.getElementById('authEmail').value.trim();
-  const pw=document.getElementById('authPassword').value;
-  showError('');
-  signInWithEmailAndPassword(auth, email, pw).catch(e=>showError(friendlyError(e)));
-};
-window.doSignUp=function(){
-  const email=document.getElementById('authEmail').value.trim();
-  const pw=document.getElementById('authPassword').value;
-  showError('');
-  createUserWithEmailAndPassword(auth, email, pw).catch(e=>showError(friendlyError(e)));
-};
-
-onAuthStateChanged(auth, (user)=>{
-  const authScreen=document.getElementById('authScreen');
-  const appScreen=document.getElementById('appScreen');
-  if(user){
-    window.currentUser=user;
-    authScreen.style.display='none';
-    appScreen.style.display='';
-    window.init();
-  }else{
-    window.currentUser=null;
-    authScreen.style.display='';
-    appScreen.style.display='none';
-  }
-});
-</script>
-</body>
-</html>
 </body>
 </html>
